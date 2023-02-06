@@ -19,10 +19,15 @@
    <%  }) %>
 
 
-      <form class="item" action="/" method="post">
+      <form class="item" action="/list" method="post">
         <input type="text" name="newItem" placeholder="New Item" autocomplete="off">
         <button type="submit" name="list" value="<%= listTitle %>">+</button>
       </form>
   </div>
+
+  <div class="box cent" >
+    <a href="/logout"> <p> logout </p> </a>
+  </div>
+
 
 <%- include("footer") -%>

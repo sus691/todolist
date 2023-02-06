@@ -4,10 +4,11 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 const _ = require("lodash");
-
-
-
-
+const session = require("express-session");
+const passport = require("passport");
+const passportLocalMongoose = require("passport-local-mongoose");
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const findOrCreate = require('mongoose-findorcreate')
 
 
 
@@ -17,8 +18,82 @@ app.set('view engine', 'ejs');
 
 app.use(bodyParser.urlencoded({extended: true}));
 app.use(express.static("public"));
+
+
+app.use(session({
+  secret: 'this is my secret',
+  saveUninitialized: true,
+  resave: true,
+  cookie: { secure: false },
+
+}))
+
+app.use(passport.initialize());
+app.use(passport.session());
+
+
+
+
+
+
+mongoose.connect(process.env.MONGODB_ADDRESS);
+mongoose.set("useCreateIndex", true);
 mongoose.set("strictQuery", true);
-mongoose.connect(process.env.MONGODB_ADDRESS, {useNewUrlParser: true});
+
+
+
+
+
+const UserSchema = new mongoose.Schema({
+
+
+  email:String,
+  password:String,
+  googleId:String,
+  list: Array
+
+});
+
+UserSchema.plugin(passportLocalMongoose);
+UserSchema.plugin(findOrCreate);
+
+const User = new mongoose.model("User", UserSchema);
+
+passport.use(User.createStrategy());
+
+passport.serializeUser(function(user, cb) {
+  process.nextTick(function() {
+    return cb(null, {
+      id: user.id,
+      username: user.username,
+      picture: user.picture
+    });
+  });
+});
+
+passport.deserializeUser(function(user, cb) {
+  process.nextTick(function() {
+    return cb(null, user);
+  });
+});
+
+
+passport.use(new GoogleStrategy({
+    clientID: process.env.CLIENT_ID,
+    clientSecret: process.env.CLIENT_SECRET,
+    callbackURL: "http://localhost:3000/auth/google/list",
+    userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo"
+  },
+
+  function(accessToken, refreshToken, profile, cb) {
+    console.log(profile);
+    User.findOrCreate({googleId: profile.id }, function (err, user) {
+      return cb(err, user);
+    });
+  }
+));
+
+
 
 const itemsSchema = {
   name: String
@@ -41,95 +116,165 @@ const Item = mongoose.model("Item", itemsSchema);
 
 // const defaultItems = [item1, item2, item3];
 
-// const listSchema = {
-//   name: String,
-//   items: [itemsSchema]
-// };
+const listSchema = {
+  name: String,
+  items: [itemsSchema]
+};
 
-// const List = mongoose.model("List", listSchema);
+const List = mongoose.model("List", listSchema);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 app.get("/", function(req, res) {
 
   res.render("home");
+});  
+
+
+
+app.get("/auth/google", 
+passport.authenticate("google",{ scope: ["profile"] })
+);  
+
+
+
+app.get('/auth/google/list', 
+  passport.authenticate('google', { failureRedirect: '/login' }),
+  function(req, res) {
+    // Successful authentication, redirect list.
+    console.log(req.isAuthenticated());
+    res.redirect('/list');
 });
+  
+
+app.get("/login", function(req, res) {
+
+  res.render("login");
+});  
+
+
+app.get("/signup", function(req, res) {
+  
+  res.render("signup");
+});  
+
 
 app.get("/list", function(req, res) {
 
-  Item.find({}, function(err, foundItems){
+  console.log(req.isAuthenticated());
+  
+  // if (req.isAuthenticated()) {
+  //   res.render("list");
+  // }  else{
+  //   res.redirect("/login");
+  // }
+  
 
-    if (foundItems.length === 0) {
-      Item.insertMany(defaultItems, function(err){
-        if (err) {
-          console.log(err);
-        } else {
-          console.log("Successfully savevd default items to DB.");
-        }
-      });
-      res.redirect("/");
-    } else {
-      res.render("list", {listTitle: "Today", newListItems: foundItems});
-    }
-  });
+  
+    if(req.isAuthenticated()){
+        Item.find({}, function(err, foundItems){
+      
+          if (foundItems.length === 0) {
+            Item.insertMany(defaultItems, function(err){
+              if (err) {
+                console.log(err);
+              } else {
+                console.log("Successfully savevd default items to DB.");
+              }  
+            });  
+            res.redirect("/");
+          } else {
+            res.render("list", {listTitle: "Today", newListItems: foundItems});
+          }  
+        });  
+      
+    }else{  
+      res.redirect("/login");
+    }  
 
-});
+});  
 
 
 app.get("/home", function(req, res) {
 
   res.render("home");
-});
-
-app.get("/login", function(req, res) {
-
-  res.render("login");
-});
-
-
-app.get("/signup", function(req, res) {
-
-  res.render("signup");
-});
+});  
 
 
 
+app.get("/about", function(req, res){
+  res.render("about");
+});  
 
 
-
-
-
-
-
-
-
-
-
-app.get("/", function(req, res){
-  const customListName = _.capitalize(req.params.customListName);
-
-  List.findOne({name: customListName}, function(err, foundList){
-    if (!err){
-      if (!foundList){
-        //Create a new list
-        const list = new List({
-          name: customListName,
-          items: defaultItems
-        });
-        list.save();
-        res.redirect("/" + customListName);
-      } else {
-        //Show an existing list
-
-        res.render("list", {listTitle: foundList.name, newListItems: foundList.items});
-      }
-    }
+app.get("/logout", function (req,res) {
+  req.logout(function(err) {
+    if (err) { console.log(err); }
+      res.redirect("/");
   });
 
 
+})  
 
-});
 
-app.post("/", function(req, res){
+
+   
+
+
+
+
+
+
+
+
+app.post("/list", function(req, res){
 
   const itemName = req.body.newItem;
   const listName = req.body.list;
@@ -140,14 +285,29 @@ app.post("/", function(req, res){
     name: itemName
   });
 
+
+
+
   if (listName === "Today"){
+
+    List.findOne({name: listName}, function(err, foundList){
+      foundList.items.push(item);
+      foundList.save();
+      res.redirect("/list" + listName);
+    });
+
+
+
+
+
+
     item.save();
-    res.redirect("/");
+    res.redirect("/list");
   } else {
     List.findOne({name: listName}, function(err, foundList){
       foundList.items.push(item);
       foundList.save();
-      res.redirect("/" + listName);
+      res.redirect("/list" + listName);
     });
   }
 });
@@ -174,9 +334,84 @@ app.post("/delete", function(req, res){
 
 });
 
-app.get("/about", function(req, res){
-  res.render("about");
+
+app.get("/signup", function(req, res) {
+  res.render("signup");
 });
+
+
+
+
+// app.post("/signup", function(req, res){
+  
+//   // User.register({username:req.body.username}, req.body.password, function(err, user) {
+//   //   if (err) {
+//   //     console.log(err)
+//   //     res.redirect("/signup");
+//   //   }else{
+//   //     passport.authenticate("local")(req, res, function () {
+//   //       res.redirect("/list");
+//   //     })
+//   //   }
+    
+
+
+//   // });
+  
+// });
+
+
+app.post("/login", function (req,res) {
+  
+  // const user = new User({
+  //   username: req.body.username,
+  //   password: req.body.password
+  // });
+
+
+  // req.login(user, function (err) {
+  //   if(err){
+  //     console.log(err);
+  //   }else{
+  //     passport.authenticate("local")(req, res, function () {
+  //       res.redirect("/list");
+  //     });
+  //   }
+
+  // });
+
+
+
+
+
+
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 app.listen(3000, function() {
